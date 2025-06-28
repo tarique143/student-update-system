@@ -80,22 +80,37 @@ def format_duration(hours_float):
     hours, minutes = int(hours_float), int((hours_float * 60) % 60)
     return f"{hours}h {minutes}m"
 
+# --- PDF REPORT GENERATION FUNCTION (FULLY CORRECTED AND MODERNIZED) ---
 def generate_pdf_report(student: dict, activities: list) -> bytes:
     pdf = FPDF(); pdf.add_page(); pdf.set_font("Helvetica", 'B', 16)
-    pdf.cell(0, 10, 'Student Activity Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C'); pdf.ln(10)
+    
+    pdf.cell(0, 10, 'Student Activity Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+    pdf.ln(10)
+    
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Student Name:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, student.get('full_name', 'N/A'), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Username:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, f"@{student.get('username', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Class:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, student.get('student_class', 'N/A'), new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.ln(10)
+
     pdf.set_font("Helvetica", 'B', 14); pdf.cell(0, 10, 'Activity Log', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L'); pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
-    if not activities: pdf.set_font("Helvetica", 'I', 12); pdf.cell(0, 10, 'No activities recorded.', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    if not activities:
+        pdf.set_font("Helvetica", 'I', 12); pdf.cell(0, 10, 'No activities recorded.', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     else:
         for activity in activities:
             pdf.set_font("Helvetica", 'B', 12); pdf.cell(0, 8, f"Date: {activity.get('date', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", '', 11); duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in']))); check_out_time = time.fromisoformat(activity.get('check_out')).strftime('%I:%M %p') if activity.get('check_out') else 'Active'
+            pdf.set_font("Helvetica", '', 11)
+            duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in'])))
+            check_out_time = time.fromisoformat(activity.get('check_out')).strftime('%I:%M %p') if activity.get('check_out') else 'Active'
             pdf.cell(0, 6, f"    Time: {time.fromisoformat(activity['check_in']).strftime('%I:%M %p')} to {check_out_time}  (Duration: {duration})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Task:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('task_description', 'N/A'), align='L')
-            if activity.get('doubt'): pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Doubts:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('doubt'), align='L')
+            
+            pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Task:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('task_description', 'N/A'), align='L')
+            
+            if activity.get('doubt'):
+                pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Doubts:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('doubt'), align='L')
+            
             pdf.ln(4)
+    # FIXED: Convert bytearray from pdf.output() to bytes for Streamlit
     return bytes(pdf.output())
 
 # --- 5. DATABASE OPERATIONS ---
@@ -130,12 +145,9 @@ def get_admin_dashboard_stats():
     return total, active, hours
 
 # --- 6. STREAMLIT UI ---
-# --- SESSION STATE INITIALIZATION (FIXED) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if 'username' not in st.session_state:
     st.session_state.username = ""
-if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
 
 st.title("👨‍🎓 Student Management System")
@@ -149,10 +161,7 @@ if st.session_state.logged_in:
                 new_full_name = st.text_input("Full Name", value=student_data.get('full_name')); new_class = st.text_input("Class", value=student_data.get('student_class')); new_address = st.text_area("Address", value=student_data.get('address'))
                 if st.form_submit_button("Update Profile"): update_student_profile(st.session_state.username, new_full_name, new_class, new_address); st.success("Profile updated!")
     if st.sidebar.button("Log Out", use_container_width=True, type="primary"):
-        st.session_state.logged_in = False
-        st.session_state.username = ""
-        st.session_state.is_admin = False
-        st.rerun()
+        st.session_state.logged_in = False; st.session_state.username = ""; st.session_state.is_admin = False; st.rerun()
 
     if st.session_state.is_admin:
         st.header("🔑 Admin Dashboard")
@@ -199,7 +208,6 @@ if st.session_state.logged_in:
         current_ssid = get_current_ssid()
         allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
         is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
-
         if not is_on_correct_network:
             st.error("**Security Alert: You are not on the designated network.**", icon="🔒")
             st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in allowed_ssids_list])}**")
