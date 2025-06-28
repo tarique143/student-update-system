@@ -80,37 +80,22 @@ def format_duration(hours_float):
     hours, minutes = int(hours_float), int((hours_float * 60) % 60)
     return f"{hours}h {minutes}m"
 
-# --- PDF REPORT GENERATION FUNCTION (FULLY CORRECTED AND MODERNIZED) ---
 def generate_pdf_report(student: dict, activities: list) -> bytes:
     pdf = FPDF(); pdf.add_page(); pdf.set_font("Helvetica", 'B', 16)
-    
-    pdf.cell(0, 10, 'Student Activity Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
-    pdf.ln(10)
-    
+    pdf.cell(0, 10, 'Student Activity Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C'); pdf.ln(10)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Student Name:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, student.get('full_name', 'N/A'), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Username:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, f"@{student.get('username', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Class:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, student.get('student_class', 'N/A'), new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.ln(10)
-
     pdf.set_font("Helvetica", 'B', 14); pdf.cell(0, 10, 'Activity Log', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L'); pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
-    if not activities:
-        pdf.set_font("Helvetica", 'I', 12); pdf.cell(0, 10, 'No activities recorded.', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    if not activities: pdf.set_font("Helvetica", 'I', 12); pdf.cell(0, 10, 'No activities recorded.', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     else:
         for activity in activities:
             pdf.set_font("Helvetica", 'B', 12); pdf.cell(0, 8, f"Date: {activity.get('date', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", '', 11)
-            duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in'])))
-            check_out_time = time.fromisoformat(activity.get('check_out')).strftime('%I:%M %p') if activity.get('check_out') else 'Active'
+            pdf.set_font("Helvetica", '', 11); duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in']))); check_out_time = time.fromisoformat(activity.get('check_out')).strftime('%I:%M %p') if activity.get('check_out') else 'Active'
             pdf.cell(0, 6, f"    Time: {time.fromisoformat(activity['check_in']).strftime('%I:%M %p')} to {check_out_time}  (Duration: {duration})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Task:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('task_description', 'N/A'), align='L')
-            
-            if activity.get('doubt'):
-                pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Doubts:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('doubt'), align='L')
-            
+            pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Task:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('task_description', 'N/A'), align='L')
+            if activity.get('doubt'): pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Doubts:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('doubt'), align='L')
             pdf.ln(4)
-    # FIXED: Convert bytearray from pdf.output() to bytes for Streamlit
     return bytes(pdf.output())
 
 # --- 5. DATABASE OPERATIONS ---
@@ -146,9 +131,7 @@ def get_admin_dashboard_stats():
 
 # --- 6. STREAMLIT UI ---
 if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.session_state.is_admin = False
+    st.session_state.logged_in = False; st.session_state.username = ""; st.session_state.is_admin = False
 
 st.title("👨‍🎓 Student Management System")
 
@@ -205,12 +188,18 @@ if st.session_state.logged_in:
                     if st.checkbox("I understand and want to delete this student", key=f"del_check_{student['username']}"):
                         if st.button("🔴 PERMANENTLY DELETE", key=f"del_btn_{student['username']}"): delete_student_data(student['username']); st.success(f"Successfully deleted {student['full_name']}."); st.rerun()
     else:
-        current_ssid = get_current_ssid()
-        allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
-        is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
+        # --- STUDENT DASHBOARD ---
+        is_deployed = st.secrets.get("IS_DEPLOYED", "false").lower() == "true"
+        if not is_deployed:
+            current_ssid = get_current_ssid()
+            allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
+            is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
+        else:
+            is_on_correct_network = True # Bypass check if deployed
+
         if not is_on_correct_network:
             st.error("**Security Alert: You are not on the designated network.**", icon="🔒")
-            st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in allowed_ssids_list])}**")
+            st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in ALLOWED_WIFI_SSID.split(',')])}**")
             st.info(f"**Your Current SSID:** `{current_ssid or 'Not Connected'}`")
             if st.button("Refresh Connection"): st.rerun()
         else:
@@ -241,7 +230,7 @@ if st.session_state.logged_in:
                 else:
                     st.metric(label="Status", value="Ready to Start")
                     with st.form("CheckInForm"):
-                        st.success(f"Connected to '{current_ssid}'. You can now check-in.", icon="✅")
+                        st.success(f"Connected to '{get_current_ssid()}'. You can now check-in.", icon="✅")
                         check_in_time_input = st.time_input("Check-in Time")
                         if st.form_submit_button("CHECK IN", use_container_width=True):
                             check_in_student(st.session_state.username, check_in_time_input); st.success(f"Checked in!"); py_time.sleep(1); st.rerun()
@@ -260,19 +249,27 @@ else:
                     st.session_state.logged_in = True; st.session_state.username = "Admin"; st.session_state.is_admin = True; st.rerun()
                 else: st.error("Invalid Admin credentials.")
     
-    st.subheader("Network Security Check")
-    current_ssid = get_current_ssid()
-    allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
-    is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
+    is_deployed = st.secrets.get("IS_DEPLOYED", "false").lower() == "true"
+    if not is_deployed:
+        st.subheader("Network Security Check")
+        current_ssid = get_current_ssid()
+        allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
+        is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
+    else:
+        is_on_correct_network = True # Bypass check if deployed
     
     if not is_on_correct_network:
         st.error("**Access Denied: You are not on the required network.**", icon="🚫")
-        st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in allowed_ssids_list])}**")
+        st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in ALLOWED_WIFI_SSID.split(',')])}**")
         st.info(f"**Your Current SSID:** `{current_ssid or 'Not Connected'}`")
         if st.button("Retry Connection Check"):
             st.rerun()
     else:
-        st.success(f"Secure network '{current_ssid}' detected. You can proceed.", icon="✅")
+        if is_deployed:
+            st.info("Welcome! Please log in or register to continue.")
+        else:
+            st.success(f"Secure network '{current_ssid}' detected. You can proceed.", icon="✅")
+        
         login_tab, register_tab = st.tabs(["👨‍🎓 Student Login", "✍️ Register"])
         with register_tab:
             st.subheader("Create a New Student Account")
