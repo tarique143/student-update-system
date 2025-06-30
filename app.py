@@ -1,4 +1,4 @@
-import streamlit as st
+  import streamlit as st
 import pymongo
 import bcrypt
 import pandas as pd
@@ -71,7 +71,11 @@ def hash_password(password: str) -> bytes: return bcrypt.hashpw(password.encode(
 def verify_password(plain_password: str, hashed_password: bytes) -> bool: return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password)
 def calculate_duration(check_in_str, check_out_str):
     try:
-        check_in, check_out = time.fromisoformat(check_in_str), time.fromisoformat(check_out_str)
+        check_in = time.fromisoformat(check_in_str)
+        check_out = time.fromisoformat(check_out_str)
+        # Handle cases where check-out might be on the next day (not typical for this app but robust)
+        if check_out < check_in:
+            return 0.0 # Or handle as an error
         delta = datetime.combine(date.today(), check_out) - datetime.combine(date.today(), check_in)
         return delta.total_seconds() / 3600
     except (ValueError, TypeError): return 0.0
@@ -79,6 +83,15 @@ def format_duration(hours_float):
     if not isinstance(hours_float, (int, float)) or hours_float < 0: return "N/A"
     hours, minutes = int(hours_float), int((hours_float * 60) % 60)
     return f"{hours}h {minutes}m"
+
+# Helper to format time strings into a 12-hour format with AM/PM
+def format_to_12hr(time_str):
+    if not time_str:
+        return "N/A"
+    try:
+        return time.fromisoformat(time_str).strftime('%I:%M %p')
+    except (ValueError, TypeError):
+        return "Invalid Time"
 
 def generate_pdf_report(student: dict, activities: list) -> bytes:
     pdf = FPDF(); pdf.add_page(); pdf.set_font("Helvetica", 'B', 16)
@@ -91,8 +104,8 @@ def generate_pdf_report(student: dict, activities: list) -> bytes:
     else:
         for activity in activities:
             pdf.set_font("Helvetica", 'B', 12); pdf.cell(0, 8, f"Date: {activity.get('date', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", '', 11); duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in']))); check_out_time = time.fromisoformat(activity.get('check_out')).strftime('%I:%M %p') if activity.get('check_out') else 'Active'
-            pdf.cell(0, 6, f"    Time: {time.fromisoformat(activity['check_in']).strftime('%I:%M %p')} to {check_out_time}  (Duration: {duration})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_font("Helvetica", '', 11); duration = format_duration(calculate_duration(activity['check_in'], activity.get('check_out', activity['check_in']))); check_out_time = format_to_12hr(activity.get('check_out')) if activity.get('check_out') else 'Active'
+            pdf.cell(0, 6, f"    Time: {format_to_12hr(activity['check_in'])} to {check_out_time}  (Duration: {duration})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Task:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('task_description', 'N/A'), align='L')
             if activity.get('doubt'): pdf.set_font("Helvetica", 'B', 11); pdf.cell(0, 6, "    Doubts:", new_x=XPos.LMARGIN, new_y=YPos.NEXT); pdf.set_font("Helvetica", '', 11); pdf.set_x(20); pdf.multi_cell(0, 6, activity.get('doubt'), align='L')
             pdf.ln(4)
@@ -111,7 +124,19 @@ def get_student_details(username): return students_collection.find_one({"usernam
 def update_student_profile(username, full_name, student_class, address): students_collection.update_one({"username": username}, {"$set": {"full_name": full_name, "student_class": student_class, "address": address}})
 def get_todays_activity(username): return activities_collection.find_one({"username": username, "date": date.today().isoformat()})
 def check_in_student(username, check_in_time): activities_collection.update_one({"username": username, "date": date.today().isoformat()}, {"$set": {"username": username, "date": date.today().isoformat(), "check_in": check_in_time.isoformat(), "recorded_at": datetime.now()}}, upsert=True)
-def check_out_student(username, task, doubt): activities_collection.update_one({"username": username, "date": date.today().isoformat()}, {"$set": {"check_out": datetime.now().time().isoformat(), "task_description": task, "doubt": doubt}})
+
+# MODIFIED: Ab check_out_student function student ka diya hua check_out_time lega.
+def check_out_student(username, check_out_time, task, doubt):
+    """Updates student activity with check-out details."""
+    activities_collection.update_one(
+        {"username": username, "date": date.today().isoformat()},
+        {"$set": {
+            "check_out": check_out_time.isoformat(), # Ab manual time save hoga
+            "task_description": task,
+            "doubt": doubt
+        }}
+    )
+
 def get_student_activities(username, start_date=None, end_date=None):
     query = {"username": username};
     if start_date and end_date: query["date"] = {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}
@@ -175,7 +200,7 @@ if st.session_state.logged_in:
                 with tab1:
                     activities = get_student_activities(student['username'], start_date_input, end_date_input)
                     if activities:
-                        df = pd.DataFrame([{"Date": a.get('date'), "Check-in": time.fromisoformat(a['check_in']).strftime('%I:%M %p'), "Check-out": time.fromisoformat(a.get('check_out')).strftime('%I:%M %p') if a.get('check_out') else 'Active', "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), "Task": a.get('task_description', 'N/A'), "Doubts": a.get('doubt', '')} for a in activities])
+                        df = pd.DataFrame([{"Date": a.get('date'), "Check-in": format_to_12hr(a['check_in']), "Check-out": format_to_12hr(a.get('check_out')) if a.get('check_out') else 'Active', "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), "Task": a.get('task_description', 'N/A'), "Doubts": a.get('doubt', '')} for a in activities])
                         st.dataframe(df, use_container_width=True, hide_index=True)
                         pdf_data = generate_pdf_report(student, activities); st.download_button(label="Download Report as PDF", data=pdf_data, file_name=f"{student['username']}_report.pdf", mime="application/pdf")
                     else: st.info("No activities recorded in the selected date range.")
@@ -214,32 +239,68 @@ if st.session_state.logged_in:
                 this_month_start = date.today().replace(day=1).isoformat(); monthly_hours = df_stats[df_stats['date'] >= this_month_start]['duration_hours'].sum()
                 avg_hours = df_stats[df_stats['duration_hours'] > 0]['duration_hours'].mean(); longest_session = df_stats['duration_hours'].max()
                 stat_col1, stat_col2, stat_col3 = st.columns(3); stat_col1.metric("Hours This Month", format_duration(monthly_hours)); stat_col2.metric("Avg. Daily Hours", format_duration(avg_hours) if pd.notna(avg_hours) else "N/A"); stat_col3.metric("Longest Session", format_duration(longest_session)); st.markdown("---")
-            todays_activity = get_todays_activity(st.session_state.username); is_checked_in = todays_activity and 'check_out' not in todays_activity
+            
+            todays_activity = get_todays_activity(st.session_state.username)
+            is_checked_in = todays_activity and 'check_out' not in todays_activity
+            
             col1, col2 = st.columns((1, 2))
             with col1:
                 st.subheader("Today's Action")
                 if is_checked_in:
-                    st.metric(label="Status", value="Checked-In", delta=f"at {time.fromisoformat(todays_activity['check_in']).strftime('%I:%M %p')}")
+                    st.metric(label="Status", value="Checked-In", delta=f"at {format_to_12hr(todays_activity['check_in'])}")
+                    
+                    # MODIFIED: Check-out form me ab time input field hai.
                     with st.form("CheckOutForm"):
-                        task = st.text_area("Task Description for Today"); doubt = st.text_area("Any Doubts? (Optional)")
+                        # NEW: Student ke liye Check-out time input field. Default value abhi ka time hoga.
+                        check_out_time_input = st.time_input("Check-out Time", value=datetime.now().time())
+                        task = st.text_area("Task Description for Today")
+                        doubt = st.text_area("Any Doubts? (Optional)")
+                        
                         if st.form_submit_button("CHECK OUT NOW", use_container_width=True, type="primary"):
-                            if task: check_out_student(st.session_state.username, task, doubt); st.success("Checked out successfully!"); py_time.sleep(1); st.balloons(); st.rerun()
-                            else: st.warning("Please describe your task.")
+                            # NEW: Validation to ensure check-out time is after check-in time.
+                            check_in_time_obj = time.fromisoformat(todays_activity['check_in'])
+                            if check_out_time_input < check_in_time_obj:
+                                st.error("Validation Error: Check-out time cannot be earlier than check-in time.")
+                            elif not task:
+                                st.warning("Please describe your task before checking out.")
+                            else:
+                                # MODIFIED: Ab check_out_student ko time bhi pass kiya jayega.
+                                check_out_student(st.session_state.username, check_out_time_input, task, doubt)
+                                st.success("Checked out successfully!"); 
+                                py_time.sleep(1)
+                                st.balloons()
+                                st.rerun()
+
                 elif todays_activity and 'check_out' in todays_activity:
-                    st.metric(label="Status", value="Completed"); st.success("Session for today is complete. Well done!")
+                    st.metric(label="Status", value="Completed")
+                    st.success("Session for today is complete. Well done!")
                 else:
                     st.metric(label="Status", value="Ready to Start")
                     with st.form("CheckInForm"):
+                        # COMMENT: st.time_input ka format (12-hr/24-hr) user ke browser/OS par depend karta hai.
+                        # Hum ise force nahi kar sakte, lekin data save aur display sahi format me hoga.
                         st.success(f"Connected to '{get_current_ssid()}'. You can now check-in.", icon="✅")
                         check_in_time_input = st.time_input("Check-in Time")
                         if st.form_submit_button("CHECK IN", use_container_width=True):
-                            check_in_student(st.session_state.username, check_in_time_input); st.success(f"Checked in!"); py_time.sleep(1); st.rerun()
+                            check_in_student(st.session_state.username, check_in_time_input)
+                            st.success(f"Checked in at {check_in_time_input.strftime('%I:%M %p')}!")
+                            py_time.sleep(1)
+                            st.rerun()
             with col2:
                 st.subheader("📜 My Full Activity Log")
                 if all_my_activities:
-                    df_display = pd.DataFrame([{"Date": a.get('date'), "Check-in": time.fromisoformat(a.get('check_in')).strftime('%I:%M %p'), "Check-out": time.fromisoformat(a.get('check_out')).strftime('%I:%M %p') if a.get('check_out') else 'Active', "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), "Task": a.get('task_description', 'N/A'), "Doubts": a.get('doubt', '')} for a in all_my_activities])
+                    # MODIFIED: DataFrame me time display ke liye format_to_12hr ka istemal.
+                    df_display = pd.DataFrame([{
+                        "Date": a.get('date'), 
+                        "Check-in": format_to_12hr(a.get('check_in')), 
+                        "Check-out": format_to_12hr(a.get('check_out')) if a.get('check_out') else 'Active', 
+                        "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), 
+                        "Task": a.get('task_description', 'N/A'), 
+                        "Doubts": a.get('doubt', '')
+                    } for a in all_my_activities])
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
-                else: st.info("You have no recorded activities yet.")
+                else: 
+                    st.info("You have no recorded activities yet.")
 else:
     with st.sidebar.expander("🔑 Admin Login", expanded=False):
         with st.form("AdminForm"):
