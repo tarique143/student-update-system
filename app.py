@@ -9,6 +9,7 @@ import subprocess
 import platform
 import re
 from fpdf import FPDF, XPos, YPos
+from zoneinfo import ZoneInfo # <-- TIMEZONE FIX: Import ZoneInfo
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
@@ -16,6 +17,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- TIMEZONE CONSTANT ---
+# TIMEZONE FIX: Apne timezone ko ek variable me set karein
+IST = ZoneInfo("Asia/Kolkata")
 
 # --- 2. SECRETS MANAGEMENT ---
 try:
@@ -50,6 +55,7 @@ messages_collection = db.messages
 # --- 4. UTILITY FUNCTIONS ---
 @st.cache_data(ttl=10)
 def get_current_ssid():
+    # ... (Is function me koi badlav nahi)
     current_os = platform.system()
     try:
         if current_os == "Windows":
@@ -71,11 +77,7 @@ def hash_password(password: str) -> bytes: return bcrypt.hashpw(password.encode(
 def verify_password(plain_password: str, hashed_password: bytes) -> bool: return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password)
 def calculate_duration(check_in_str, check_out_str):
     try:
-        check_in = time.fromisoformat(check_in_str)
-        check_out = time.fromisoformat(check_out_str)
-        # Handle cases where check-out might be on the next day (not typical for this app but robust)
-        if check_out < check_in:
-            return 0.0 # Or handle as an error
+        check_in, check_out = time.fromisoformat(check_in_str), time.fromisoformat(check_out_str)
         delta = datetime.combine(date.today(), check_out) - datetime.combine(date.today(), check_in)
         return delta.total_seconds() / 3600
     except (ValueError, TypeError): return 0.0
@@ -83,17 +85,13 @@ def format_duration(hours_float):
     if not isinstance(hours_float, (int, float)) or hours_float < 0: return "N/A"
     hours, minutes = int(hours_float), int((hours_float * 60) % 60)
     return f"{hours}h {minutes}m"
-
-# Helper to format time strings into a 12-hour format with AM/PM
 def format_to_12hr(time_str):
-    if not time_str:
-        return "N/A"
-    try:
-        return time.fromisoformat(time_str).strftime('%I:%M %p')
-    except (ValueError, TypeError):
-        return "Invalid Time"
+    if not time_str: return "N/A"
+    try: return time.fromisoformat(time_str).strftime('%I:%M %p')
+    except (ValueError, TypeError): return "Invalid Time"
 
 def generate_pdf_report(student: dict, activities: list) -> bytes:
+    # ... (Is function me koi badlav nahi)
     pdf = FPDF(); pdf.add_page(); pdf.set_font("Helvetica", 'B', 16)
     pdf.cell(0, 10, 'Student Activity Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C'); pdf.ln(10)
     pdf.set_font("Helvetica", 'B', 12); pdf.cell(40, 8, 'Student Name:'); pdf.set_font("Helvetica", '', 12); pdf.cell(0, 8, student.get('full_name', 'N/A'), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -114,7 +112,8 @@ def generate_pdf_report(student: dict, activities: list) -> bytes:
 # --- 5. DATABASE OPERATIONS ---
 def register_student(username, password, full_name, student_class, phone, address, reference):
     if students_collection.find_one({"username": username}): return False, "Username already exists."
-    hashed_pass = hash_password(password); student_data = {"username": username, "password": hashed_pass, "full_name": full_name, "student_class": student_class, "phone": phone, "address": address, "reference": reference, "registered_on": datetime.now()}; students_collection.insert_one(student_data)
+    # TIMEZONE FIX: Use datetime.now(IST)
+    hashed_pass = hash_password(password); student_data = {"username": username, "password": hashed_pass, "full_name": full_name, "student_class": student_class, "phone": phone, "address": address, "reference": reference, "registered_on": datetime.now(IST)}; students_collection.insert_one(student_data)
     return True, "Registration successful! Redirecting..."
 def login_student(username, password):
     student = students_collection.find_one({"username": username});
@@ -122,33 +121,49 @@ def login_student(username, password):
     return False, "Invalid username or password."
 def get_student_details(username): return students_collection.find_one({"username": username})
 def update_student_profile(username, full_name, student_class, address): students_collection.update_one({"username": username}, {"$set": {"full_name": full_name, "student_class": student_class, "address": address}})
-def get_todays_activity(username): return activities_collection.find_one({"username": username, "date": date.today().isoformat()})
-def check_in_student(username, check_in_time): activities_collection.update_one({"username": username, "date": date.today().isoformat()}, {"$set": {"username": username, "date": date.today().isoformat(), "check_in": check_in_time.isoformat(), "recorded_at": datetime.now()}}, upsert=True)
-
-# MODIFIED: Ab check_out_student function student ka diya hua check_out_time lega.
-def check_out_student(username, check_out_time, task, doubt):
-    """Updates student activity with check-out details."""
+def get_todays_activity(username):
+    # TIMEZONE FIX: Use datetime.now(IST).date()
+    today_date_str = datetime.now(IST).date().isoformat()
+    return activities_collection.find_one({"username": username, "date": today_date_str})
+def check_in_student(username, check_in_time):
+    # TIMEZONE FIX: Use datetime.now(IST).date() and datetime.now(IST)
+    today_date_str = datetime.now(IST).date().isoformat()
     activities_collection.update_one(
-        {"username": username, "date": date.today().isoformat()},
+        {"username": username, "date": today_date_str},
         {"$set": {
-            "check_out": check_out_time.isoformat(), # Ab manual time save hoga
+            "username": username,
+            "date": today_date_str,
+            "check_in": check_in_time.isoformat(),
+            "recorded_at": datetime.now(IST)
+        }},
+        upsert=True
+    )
+def check_out_student(username, check_out_time, task, doubt):
+    # TIMEZONE FIX: Use datetime.now(IST).date()
+    today_date_str = datetime.now(IST).date().isoformat()
+    activities_collection.update_one(
+        {"username": username, "date": today_date_str},
+        {"$set": {
+            "check_out": check_out_time.isoformat(),
             "task_description": task,
             "doubt": doubt
         }}
     )
-
 def get_student_activities(username, start_date=None, end_date=None):
     query = {"username": username};
     if start_date and end_date: query["date"] = {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}
     return list(activities_collection.find(query).sort("date", -1))
 def get_all_students_details(): return list(students_collection.find({}, {"password": 0}))
 def delete_student_data(username): activities_collection.delete_many({"username": username}); messages_collection.delete_many({"to_username": username}); students_collection.delete_one({"username": username})
-def send_message_to_student(to_username, message_text): messages_collection.insert_one({"to_username": to_username, "from_user": "Admin", "message": message_text, "sent_at": datetime.now()})
+def send_message_to_student(to_username, message_text):
+    # TIMEZONE FIX: Use datetime.now(IST)
+    messages_collection.insert_one({"to_username": to_username, "from_user": "Admin", "message": message_text, "sent_at": datetime.now(IST)})
 def broadcast_message_to_all(message_text):
     for student in get_all_students_details(): send_message_to_student(student['username'], message_text)
 def get_messages_for_student(username): return list(messages_collection.find({"to_username": username}).sort("sent_at", -1))
 def get_admin_dashboard_stats():
-    total = students_collection.count_documents({}); today_str = date.today().isoformat();
+    # TIMEZONE FIX: Use datetime.now(IST).date()
+    total = students_collection.count_documents({}); today_str = datetime.now(IST).date().isoformat();
     active = activities_collection.count_documents({"date": today_str, "check_out": {"$exists": False}})
     completed = activities_collection.find({"date": today_str, "check_out": {"$exists": True}});
     hours = sum(calculate_duration(a['check_in'], a['check_out']) for a in completed);
@@ -161,6 +176,7 @@ if 'logged_in' not in st.session_state:
 st.title("👨‍🎓 Student Management System")
 
 if st.session_state.logged_in:
+    # ... (Is hisse me koi badlav nahi)
     st.sidebar.success(f"Welcome, {st.session_state.username}!")
     if not st.session_state.is_admin:
         with st.sidebar.expander("✏️ My Profile", expanded=False):
@@ -185,7 +201,12 @@ if st.session_state.logged_in:
         st.subheader("Student Details & Management");
         search_query = st.text_input("Search Students (by name or username)", placeholder="Type here to filter...")
         filt_col1, filt_col2 = st.columns(2);
-        start_date_input = filt_col1.date_input("Start Date", date.today() - relativedelta(months=1)); end_date_input = filt_col2.date_input("End Date", date.today());
+        
+        # TIMEZONE FIX: Use datetime.now(IST).date() for default date inputs
+        today_ist = datetime.now(IST).date()
+        start_date_input = filt_col1.date_input("Start Date", today_ist - relativedelta(months=1)); 
+        end_date_input = filt_col2.date_input("End Date", today_ist);
+        
         all_students = get_all_students_details()
         if not all_students: st.info("No students have registered yet.")
         filtered_students = [s for s in all_students if search_query.lower() in s['full_name'].lower() or search_query.lower() in s['username'].lower()] if search_query else all_students
@@ -220,7 +241,7 @@ if st.session_state.logged_in:
             allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
             is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
         else:
-            is_on_correct_network = True # Bypass check if deployed
+            is_on_correct_network = True
 
         if not is_on_correct_network:
             st.error("**Security Alert: You are not on the designated network.**", icon="🔒")
@@ -232,11 +253,12 @@ if st.session_state.logged_in:
             messages = get_messages_for_student(st.session_state.username)
             if messages:
                 with st.expander("📬 You have new messages from the Admin!", expanded=True):
-                    for msg in messages: st.info(f"**{msg['sent_at'].strftime('%d-%b-%Y %I:%M %p')}:** {msg['message']}")
+                    for msg in messages: st.info(f"**{msg['sent_at'].astimezone(IST).strftime('%d-%b-%Y %I:%M %p')}:** {msg['message']}")
             all_my_activities = get_student_activities(st.session_state.username)
             if all_my_activities:
                 df_stats = pd.DataFrame(all_my_activities); df_stats['duration_hours'] = df_stats.apply(lambda row: calculate_duration(row['check_in'], row.get('check_out', row['check_in'])), axis=1)
-                this_month_start = date.today().replace(day=1).isoformat(); monthly_hours = df_stats[df_stats['date'] >= this_month_start]['duration_hours'].sum()
+                # TIMEZONE FIX: Use datetime.now(IST).date()
+                this_month_start = datetime.now(IST).date().replace(day=1).isoformat(); monthly_hours = df_stats[df_stats['date'] >= this_month_start]['duration_hours'].sum()
                 avg_hours = df_stats[df_stats['duration_hours'] > 0]['duration_hours'].mean(); longest_session = df_stats['duration_hours'].max()
                 stat_col1, stat_col2, stat_col3 = st.columns(3); stat_col1.metric("Hours This Month", format_duration(monthly_hours)); stat_col2.metric("Avg. Daily Hours", format_duration(avg_hours) if pd.notna(avg_hours) else "N/A"); stat_col3.metric("Longest Session", format_duration(longest_session)); st.markdown("---")
             
@@ -248,60 +270,38 @@ if st.session_state.logged_in:
                 st.subheader("Today's Action")
                 if is_checked_in:
                     st.metric(label="Status", value="Checked-In", delta=f"at {format_to_12hr(todays_activity['check_in'])}")
-                    
-                    # MODIFIED: Check-out form me ab time input field hai.
                     with st.form("CheckOutForm"):
-                        # NEW: Student ke liye Check-out time input field. Default value abhi ka time hoga.
-                        check_out_time_input = st.time_input("Check-out Time", value=datetime.now().time())
+                        # TIMEZONE FIX: Set default time for checkout to current IST time
+                        check_out_time_input = st.time_input("Check-out Time", value=datetime.now(IST).time())
                         task = st.text_area("Task Description for Today")
                         doubt = st.text_area("Any Doubts? (Optional)")
-                        
                         if st.form_submit_button("CHECK OUT NOW", use_container_width=True, type="primary"):
-                            # NEW: Validation to ensure check-out time is after check-in time.
                             check_in_time_obj = time.fromisoformat(todays_activity['check_in'])
-                            if check_out_time_input < check_in_time_obj:
-                                st.error("Validation Error: Check-out time cannot be earlier than check-in time.")
-                            elif not task:
-                                st.warning("Please describe your task before checking out.")
+                            if check_out_time_input < check_in_time_obj: st.error("Validation Error: Check-out time cannot be earlier than check-in time.")
+                            elif not task: st.warning("Please describe your task before checking out.")
                             else:
-                                # MODIFIED: Ab check_out_student ko time bhi pass kiya jayega.
                                 check_out_student(st.session_state.username, check_out_time_input, task, doubt)
-                                st.success("Checked out successfully!"); 
-                                py_time.sleep(1)
-                                st.balloons()
-                                st.rerun()
-
+                                st.success("Checked out successfully!"); py_time.sleep(1); st.balloons(); st.rerun()
                 elif todays_activity and 'check_out' in todays_activity:
-                    st.metric(label="Status", value="Completed")
-                    st.success("Session for today is complete. Well done!")
+                    st.metric(label="Status", value="Completed"); st.success("Session for today is complete. Well done!")
                 else:
                     st.metric(label="Status", value="Ready to Start")
                     with st.form("CheckInForm"):
-                        # COMMENT: st.time_input ka format (12-hr/24-hr) user ke browser/OS par depend karta hai.
-                        # Hum ise force nahi kar sakte, lekin data save aur display sahi format me hoga.
                         st.success(f"Connected to '{get_current_ssid()}'. You can now check-in.", icon="✅")
-                        check_in_time_input = st.time_input("Check-in Time")
+                        # TIMEZONE FIX: Set default time for checkin to current IST time
+                        check_in_time_input = st.time_input("Check-in Time", value=datetime.now(IST).time())
                         if st.form_submit_button("CHECK IN", use_container_width=True):
                             check_in_student(st.session_state.username, check_in_time_input)
                             st.success(f"Checked in at {check_in_time_input.strftime('%I:%M %p')}!")
-                            py_time.sleep(1)
-                            st.rerun()
+                            py_time.sleep(1); st.rerun()
             with col2:
                 st.subheader("📜 My Full Activity Log")
                 if all_my_activities:
-                    # MODIFIED: DataFrame me time display ke liye format_to_12hr ka istemal.
-                    df_display = pd.DataFrame([{
-                        "Date": a.get('date'), 
-                        "Check-in": format_to_12hr(a.get('check_in')), 
-                        "Check-out": format_to_12hr(a.get('check_out')) if a.get('check_out') else 'Active', 
-                        "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), 
-                        "Task": a.get('task_description', 'N/A'), 
-                        "Doubts": a.get('doubt', '')
-                    } for a in all_my_activities])
+                    df_display = pd.DataFrame([{"Date": a.get('date'), "Check-in": format_to_12hr(a.get('check_in')), "Check-out": format_to_12hr(a.get('check_out')) if a.get('check_out') else 'Active', "Duration": format_duration(calculate_duration(a['check_in'], a.get('check_out', a['check_in']))), "Task": a.get('task_description', 'N/A'), "Doubts": a.get('doubt', '')} for a in all_my_activities])
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
-                else: 
-                    st.info("You have no recorded activities yet.")
+                else: st.info("You have no recorded activities yet.")
 else:
+    # ... (Login/Register page me koi khaas badlav nahi, kyonki wahan time ka display nahi hai)
     with st.sidebar.expander("🔑 Admin Login", expanded=False):
         with st.form("AdminForm"):
             admin_username = st.text_input("Admin Username"); admin_password = st.text_input("Admin Password", type="password")
@@ -316,20 +316,16 @@ else:
         current_ssid = get_current_ssid()
         allowed_ssids_list = [ssid.strip().lower() for ssid in ALLOWED_WIFI_SSID.split(',')]
         is_on_correct_network = (current_ssid and current_ssid.lower() in allowed_ssids_list)
-    else:
-        is_on_correct_network = True # Bypass check if deployed
+    else: is_on_correct_network = True
     
     if not is_on_correct_network:
         st.error("**Access Denied: You are not on the required network.**", icon="🚫")
         st.warning(f"Please connect to one of the authorized Wi-Fi networks: **{', '.join([s.upper() for s in ALLOWED_WIFI_SSID.split(',')])}**")
         st.info(f"**Your Current SSID:** `{current_ssid or 'Not Connected'}`")
-        if st.button("Retry Connection Check"):
-            st.rerun()
+        if st.button("Retry Connection Check"): st.rerun()
     else:
-        if is_deployed:
-            st.info("Welcome! Please log in or register to continue.")
-        else:
-            st.success(f"Secure network '{current_ssid}' detected. You can proceed.", icon="✅")
+        if is_deployed: st.info("Welcome! Please log in or register to continue.")
+        else: st.success(f"Secure network '{current_ssid}' detected. You can proceed.", icon="✅")
         
         login_tab, register_tab = st.tabs(["👨‍🎓 Student Login", "✍️ Register"])
         with register_tab:
