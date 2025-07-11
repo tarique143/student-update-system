@@ -107,24 +107,41 @@ def show_sidebar(username, is_admin, student_data):
     if st.sidebar.button("Log Out", use_container_width=True, type="primary"): result = {"action": "logout"}
     return result
 
+# Is poore function ko copy-paste kar lein
+
 def show_student_dashboard(username, messages, activities, todays_activity):
+    # --- Timezone setup (Function ke andar isliye taaki yeh hamesha available ho) ---
+    import pytz
+    from datetime import datetime
+    import pandas as pd
+    IST = pytz.timezone('Asia/Kolkata')
+    
     st.header(f"📅 Welcome, {username.capitalize()}!");
     if messages:
         with st.expander(f"📬 You have {len(messages)} new message(s)!", expanded=True):
-            for msg in messages: st.info(f"**{msg['sent_at'].strftime('%d-%b %I:%M %p')}:** {msg['message']}")
+            for msg in messages: 
+                # Ensure sent_at is timezone-aware before formatting
+                sent_at_aware = msg.get('sent_at', datetime.now(IST))
+                if sent_at_aware.tzinfo is None:
+                    sent_at_aware = IST.localize(sent_at_aware)
+                else:
+                    sent_at_aware = sent_at_aware.astimezone(IST)
+                st.info(f"**{sent_at_aware.strftime('%d-%b %I:%M %p')}:** {msg['message']}")
     
     # --- STUDENT STATS ---
     if activities:
         df = pd.DataFrame(activities)
-        df['duration'] = df.apply(lambda row: calculate_duration(row['check_in'], row.get('check_out')), axis=1)
-        total_sessions = len(df)
-        total_hours = df['duration'].sum()
-        avg_hours = df['duration'].mean()
-        
-        stat1, stat2, stat3 = st.columns(3)
-        stat1.metric("Total Hours Logged", format_duration(total_hours))
-        stat2.metric("Total Sessions", total_sessions)
-        stat3.metric("Average Session", format_duration(avg_hours))
+        # Check if 'check_in' column exists before proceeding
+        if 'check_in' in df.columns:
+            df['duration'] = df.apply(lambda row: calculate_duration(row['check_in'], row.get('check_out')), axis=1)
+            total_sessions = len(df)
+            total_hours = df['duration'].sum()
+            avg_hours = df['duration'].mean() if total_sessions > 0 else 0
+            
+            stat1, stat2, stat3 = st.columns(3)
+            stat1.metric("Total Hours Logged", format_duration(total_hours))
+            stat2.metric("Total Sessions", total_sessions)
+            stat3.metric("Average Session", format_duration(avg_hours))
         st.divider()
 
     result = {}; col1, col2 = st.columns((1, 2)); is_checked_in = todays_activity and 'check_out' not in todays_activity
@@ -135,19 +152,39 @@ def show_student_dashboard(username, messages, activities, todays_activity):
             with st.form("CheckOutForm"):
                 task = st.text_area("Task Description"); doubt = st.text_area("Doubts?")
                 if st.form_submit_button("CHECK OUT", use_container_width=True, type="primary"):
-                    if task: result = {"action": "check_out", "data": {"task": task, "doubt": doubt, "check_out_time": datetime.now().time()}}
+                    if task:
+                        # === YAHAN BADLAAV KIYA GAYA HAI ===
+                        result = {
+                            "action": "check_out", 
+                            "data": {
+                                "task": task, 
+                                "doubt": doubt, 
+                                "check_out_time": datetime.now(IST).time() # Force IST time
+                            }
+                        }
+                        # ====================================
                     else: st.warning("Please describe your task.")
         elif todays_activity and 'check_out' in todays_activity:
              st.metric("Status", "Completed for Today"); st.success("Well done! See you tomorrow.")
         else:
             st.metric("Status", "Ready to Start")
-            if st.button("CHECK IN", use_container_width=True, type="primary"): result = {"action": "check_in", "data": {"check_in_time": datetime.now().time()}}
+            if st.button("CHECK IN", use_container_width=True, type="primary"):
+                # === YAHAN BHI BADLAAV KIYA GAYA HAI ===
+                result = {
+                    "action": "check_in", 
+                    "data": {
+                        "check_in_time": datetime.now(IST).time() # Force IST time
+                    }
+                }
+                # =====================================
+                
     with col2:
         st.subheader("📜 My Full Activity Log")
         if activities:
             df_display = pd.DataFrame([{"Date": a.get('date'), "In": format_to_12hr(a.get('check_in')), "Out": format_to_12hr(a.get('check_out')), "Duration": format_duration(calculate_duration(a.get('check_in'), a.get('check_out'))), "Task": a.get('task_description'), "Doubts": a.get('doubt')} for a in activities])
             st.dataframe(df_display, use_container_width=True, hide_index=True)
         else: st.info("You have no recorded activities yet. Click 'CHECK IN' to start!")
+        
     return result
 
 # Is poore function ko copy-paste kar lein
