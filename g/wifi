@@ -1,0 +1,16 @@
+# check_wifi.py
+import subprocess
+import platform
+
+print(f"Aapka Operating System hai: {platform.system()}")
+
+if platform.system() == "Windows":
+    try:
+        print("\n--- Windows Command ka Asli Output ---")
+        output = subprocess.check_output("netsh wlan show interfaces", shell=True, stderr=subprocess.DEVNULL)
+        # Hum yahan 'cp437' ka istemal kar rahe hain taaki Hindi characters bhi sahi se dikhein
+        print(output.decode('cp437')) 
+    except Exception as e:
+        print(f"Command chalane me error aaya: {e}")
+else:
+    print("Yeh script sirf Windows ke liye hai. Apne OS ke hisaab se command badlein.")
